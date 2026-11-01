@@ -29,6 +29,7 @@ public class RxService extends Service {
     volatile int targetMs = 80;
     volatile long rttMs = -1;
     volatile int received, lost;
+    final WavRecorder rec = new WavRecorder();      // optional copy of the received audio on this phone
 
     private final ArrayDeque<short[]> queue = new ArrayDeque<>();
     private int queuedSamples;
@@ -77,6 +78,7 @@ public class RxService extends Service {
     public void onDestroy() {
         running = false;
         instance = null;
+        rec.stop();
         if (client != null) client.close();
         synchronized (queue) { queue.notifyAll(); }
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
@@ -100,6 +102,7 @@ public class RxService extends Service {
                 short[] pcm = new short[(d.length - 4) / 2];
                 for (int i = 0; i < pcm.length; i++) pcm[i] = (short) ((d[4 + 2 * i] & 0xFF) | (d[5 + 2 * i] << 8));
                 push(pcm);
+                rec.writePcm(pcm);
                 state = "live";
                 lastError = null;
             }
@@ -121,6 +124,12 @@ public class RxService extends Service {
                 }).start();
             }
         });
+    }
+
+    /** Record the received audio on this phone. Returns an error message, or null on success. */
+    String setLocalRecording(boolean on) {
+        if (!on) { rec.stop(); return null; }
+        try { rec.start(this, "RX"); return null; } catch (Exception e) { return e.getMessage(); }
     }
 
     /** Send a control message (mute, rec, gain_db, ns, gate, hpf) to the transmitter. */

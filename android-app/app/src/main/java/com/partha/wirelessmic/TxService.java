@@ -246,7 +246,7 @@ public class TxService extends Service {
 
     void setRecording(boolean on) {
         if (on && !rec.active()) {
-            try { rec.start(recDir(this)); } catch (IOException e) { notifyError("Cannot record: " + e.getMessage()); }
+            try { rec.start(this, "MIC"); } catch (IOException e) { notifyError("Cannot record: " + e.getMessage()); }
         } else if (!on) {
             rec.stop();
         }
@@ -269,20 +269,16 @@ public class TxService extends Service {
             }
             if (path.equals("/recordings.json")) {
                 JSONArray a = new JSONArray();
-                File[] files = recDir(this).listFiles();
-                if (files != null) {
-                    Arrays.sort(files, Collections.reverseOrder());
-                    for (File f : files) if (f.getName().endsWith(".wav"))
-                        a.put(new JSONObject().put("name", f.getName()).put("mb", Math.round(f.length() / 1e5) / 10.0));
-                }
+                for (RecStore.Item it : RecStore.list(this))
+                    a.put(new JSONObject().put("name", it.name).put("mb", Math.round(it.size / 1e5) / 10.0));
                 return new Net.Response("application/json", a.toString().getBytes());
             }
             if (path.equals("/wirelessmic.apk"))          // share this app with the receiver phone
                 return new Net.Response("application/vnd.android.package-archive", new File(getPackageCodePath()));
             if (path.startsWith("/rec/")) {
                 String name = new File(java.net.URLDecoder.decode(path.substring(5), "UTF-8")).getName();
-                File f = new File(recDir(this), name);
-                if (name.endsWith(".wav") && f.isFile()) return new Net.Response("audio/wav", f);
+                for (RecStore.Item it : RecStore.list(this))
+                    if (it.name.equals(name)) return new Net.Response("audio/wav", RecStore.open(this, it), it.size, it.name);
             }
         } catch (Exception ignored) { }
         return null;

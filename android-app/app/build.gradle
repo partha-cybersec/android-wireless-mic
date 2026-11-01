@@ -10,7 +10,7 @@ android {
         applicationId 'com.partha.wirelessmic'
         minSdk 24          // Android 7.0 (Honor 8)
         targetSdk 34
-        versionCode 2
+        versionCode 3
         versionName '1.0.1'
     }
 

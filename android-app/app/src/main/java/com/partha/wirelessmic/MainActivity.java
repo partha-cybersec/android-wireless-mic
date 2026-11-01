@@ -43,6 +43,9 @@ public class MainActivity extends Activity {
     private LinearLayout txPanel, rxPanel, foundList;
     private Button tabTx, tabRx, startBtn, airBtn, recBtn, hpfBtn, gateBtn, rxRecBtn, rxMuteBtn, connectBtn;
     private final Button[] nsBtns = new Button[3];
+    private final Button[] targetBtns = new Button[3];      // record on: mic phone / this phone / both
+    private TextView txFolder, rxFolder;
+    private static final int PICK_FOLDER = 42;
     private TextView txStats, txInfo, rxStatus, rxStats, gainLabel, bufLabel, recInfo;
     private SeekBar gainBar, bufBar;
     private Meter txMeter, rxMeter;
@@ -104,6 +107,8 @@ public class MainActivity extends Activity {
         recInfo = text("", 12, DIM);
         recInfo.setGravity(Gravity.CENTER);
         txPanel.addView(recInfo, margins(0, 6, 0, 0));
+        txFolder = text("", 13, TEXT);
+        txPanel.addView(folderCard(txFolder), margins(0, 12, 0, 0));
         txStats = text("", 15, TEXT);
         txPanel.addView(card(txStats), margins(0, 12, 0, 0));
 
@@ -171,14 +176,27 @@ public class MainActivity extends Activity {
         });
         rctl.addView(bufBar);
         rctl.addView(text("Lower = less delay, higher = fewer dropouts on weak Wi-Fi", 12, DIM));
-        LinearLayout remote = row();
         rxMuteBtn = button("Mute mic", v -> remote("mute"));
-        rxRecBtn = button("● Rec on mic", v -> remote("rec"));
-        remote.addView(rxMuteBtn, weight());
-        remote.addView(space(8));
-        remote.addView(rxRecBtn, weight());
-        rctl.addView(remote, margins(0, 12, 0, 0));
+        rctl.addView(rxMuteBtn, margins(0, 12, 0, 0));
         rxPanel.addView(card(rctl), margins(0, 12, 0, 0));
+
+        LinearLayout recCard = col();
+        recCard.addView(text("Record on", 13, DIM));
+        LinearLayout targets = row();
+        String[] tn = {"Mic phone", "This phone", "Both"};
+        for (int i = 0; i < 3; i++) {
+            final int t = i;
+            targetBtns[i] = button(tn[i], v -> prefs.edit().putInt("rec_target", t).apply());
+            targets.addView(targetBtns[i], weight());
+            if (i < 2) targets.addView(space(6));
+        }
+        recCard.addView(targets, margins(0, 4, 0, 0));
+        rxRecBtn = button("● RECORD", v -> toggleRxRecording());
+        rxRecBtn.setPadding(0, dp(14), 0, dp(14));
+        recCard.addView(rxRecBtn, margins(0, 10, 0, 0));
+        rxPanel.addView(card(recCard), margins(0, 12, 0, 0));
+        rxFolder = text("", 13, TEXT);
+        rxPanel.addView(folderCard(rxFolder), margins(0, 12, 0, 0));
         Button disc = button("Disconnect", v -> RxService.stop(this));
         rxPanel.addView(disc, margins(0, 12, 0, 0));
         rxPanel.addView(text("Camera: headphone jack → TRRS-to-TRS cable → camera MIC input.", 12, DIM), margins(0, 12, 0, 0));
@@ -229,6 +247,49 @@ public class MainActivity extends Activity {
         TxService.stop(this);
         RxService.start(this, host);
         ui.postDelayed(() -> { RxService r = RxService.instance; if (r != null) r.targetMs = bufBar.getProgress() + 30; }, 300);
+    }
+
+    /** Start/stop recording on the mic phone, this phone, or both (receiver's "Record on" choice). */
+    private void toggleRxRecording() {
+        RxService r = RxService.instance;
+        if (r == null) return;
+        boolean micRec = r.txStatus != null && r.txStatus.optBoolean("rec"), localRec = r.rec.active();
+        if (micRec || localRec) {                                   // stop whatever is running
+            if (micRec) r.send("{\"rec\":false}");
+            r.setLocalRecording(false);
+            return;
+        }
+        int target = prefs.getInt("rec_target", 0);
+        if (target != 1) r.send("{\"rec\":true}");
+        if (target != 0) {
+            String err = r.setLocalRecording(true);
+            if (err != null) rxStatus.setText("Cannot record here: " + err);
+        }
+    }
+
+    private View folderCard(TextView label) {
+        LinearLayout c = col();
+        c.addView(text("Recordings are saved to", 13, DIM));
+        c.addView(label, margins(0, 4, 0, 0));
+        LinearLayout r = row();
+        r.addView(button("Change folder", v -> {
+            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT_TREE);
+            try { startActivityForResult(i, PICK_FOLDER); } catch (Exception e) { label.setText("No folder picker on this phone"); }
+        }), weight());
+        r.addView(space(8));
+        r.addView(button("Default", v -> RecStore.setTree(this, null)), weight());
+        c.addView(r, margins(0, 10, 0, 0));
+        return card(c);
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, android.content.Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != PICK_FOLDER || res != RESULT_OK || data == null || data.getData() == null) return;
+        android.net.Uri tree = data.getData();
+        getContentResolver().takePersistableUriPermission(tree,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        RecStore.setTree(this, tree);
     }
 
     private void remote(String what) {
@@ -294,6 +355,9 @@ public class MainActivity extends Activity {
 
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
+            String folder = RecStore.describe(MainActivity.this);
+            txFolder.setText(folder);
+            rxFolder.setText(folder);
             renderTx();
             renderRx();
             ui.postDelayed(this, 150);
@@ -322,7 +386,7 @@ public class MainActivity extends Activity {
         boolean r = t.rec.active();
         recBtn.setText(r ? "■ STOP RECORDING  " + mmss(t.rec.seconds()) : "● RECORD BACKUP");
         style(recBtn, r ? RED : BTN, r ? Color.WHITE : TEXT);
-        recInfo.setText(r ? t.rec.name() + "  (L main · R safety −6 dB)" : "Saved to " + TxService.recDir(this).getAbsolutePath());
+        recInfo.setText(r ? t.rec.name() + "  (L main · R safety −6 dB)" : "");
         int rx = t.receivers();
         txStats.setText(String.format(Locale.US, "%s   ·   Wi-Fi %s   ·   %d receiver%s   ·   %s on air\nLevel %s",
                 t.battery < 0 ? "–" : t.battery + "%" + (t.charging ? "⚡" : ""), t.rssi == 0 ? "–" : t.rssi + " dBm",
@@ -368,8 +432,13 @@ public class MainActivity extends Activity {
         boolean muted = s != null && s.optBoolean("mute"), rec = s != null && s.optBoolean("rec");
         rxMuteBtn.setText(muted ? "Unmute mic" : "Mute mic");
         style(rxMuteBtn, muted ? 0xFF3A1F22 : BTN, muted ? 0xFFFFB3B5 : TEXT);
-        rxRecBtn.setText(rec ? "■ Stop rec" : "● Rec on mic");
-        style(rxRecBtn, rec ? RED : BTN, rec ? Color.WHITE : TEXT);
+        boolean local = r.rec.active();
+        String where = rec && local ? "both phones" : rec ? "mic phone" : "this phone";
+        rxRecBtn.setText(rec || local ? "■ STOP RECORDING (" + where + ")  " + mmss(local ? r.rec.seconds() : s.optDouble("rec_secs"))
+                : "● RECORD");
+        style(rxRecBtn, rec || local ? RED : BTN, rec || local ? Color.WHITE : TEXT);
+        int target = prefs.getInt("rec_target", 0);
+        for (int i = 0; i < 3; i++) style(targetBtns[i], target == i ? BLUE : BTN, target == i ? 0xFF001629 : TEXT);
     }
 
     // ---- small UI helpers -----------------------------------------------------------------------

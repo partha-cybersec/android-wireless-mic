@@ -20,6 +20,8 @@ Built and tested on a **Honor 8 (FRD-L02, Android 7.0)** with a phone hotspot as
 | Receive mode | Finds transmitters automatically (mDNS/NSD), jitter buffer, low-latency AudioTrack playback, remote mute/record |
 | Browser receiver | Still built in: open `http://<mic-phone-ip>:8080` on a PC or in OBS |
 | Share the app | A receiver phone can download the APK straight from the mic phone's receiver page |
+| Recording | Receiver chooses **Record on: Mic phone / This phone / Both**; files end in `_MIC.wav` or `_RX.wav` |
+| Save folder | Each phone: **Change folder** (any folder, including a microSD card) or **Default** (app folder); full path shown |
 | Size / deps | 45 KB, pure Java, no libraries, minSdk 24 (Android 7.0), targetSdk 34 |
 | Tested | Honor 8: 0 packets lost, about 91 ms latency, 6 % CPU, safety track exactly −6.02 dB |
 

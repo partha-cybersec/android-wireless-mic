@@ -29,9 +29,13 @@ final class Net {
 
     /** HTTP response for a GET: either bytes or a file to stream. */
     static final class Response {
-        final String type; final byte[] body; final File file;
-        Response(String type, byte[] body) { this.type = type; this.body = body; this.file = null; }
-        Response(String type, File file) { this.type = type; this.body = null; this.file = file; }
+        final String type; final byte[] body; final InputStream stream; final long length; final String filename;
+        Response(String type, byte[] body) { this(type, body, null, body.length, null); }
+        Response(String type, File file) throws IOException { this(type, null, new FileInputStream(file), file.length(), file.getName()); }
+        Response(String type, InputStream stream, long length, String filename) { this(type, null, stream, length, filename); }
+        private Response(String type, byte[] body, InputStream stream, long length, String filename) {
+            this.type = type; this.body = body; this.stream = stream; this.length = length; this.filename = filename;
+        }
     }
 
     interface Routes { Response get(String path); }
@@ -155,12 +159,11 @@ final class Net {
                 out.write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes());
                 return;
             }
-            long len = r.body != null ? r.body.length : r.file.length();
-            String extra = r.file != null ? "Content-Disposition: attachment; filename=\"" + r.file.getName() + "\"\r\n" : "";
-            out.write(("HTTP/1.1 200 OK\r\nContent-Type: " + r.type + "\r\nContent-Length: " + len
+            String extra = r.filename != null ? "Content-Disposition: attachment; filename=\"" + r.filename + "\"\r\n" : "";
+            out.write(("HTTP/1.1 200 OK\r\nContent-Type: " + r.type + "\r\nContent-Length: " + r.length
                     + "\r\nCache-Control: no-store\r\n" + extra + "Connection: close\r\n\r\n").getBytes());
             if (r.body != null) out.write(r.body);
-            else try (FileInputStream fi = new FileInputStream(r.file)) {
+            else try (InputStream fi = r.stream) {
                 byte[] b = new byte[65536];
                 for (int n; (n = fi.read(b)) > 0; ) out.write(b, 0, n);
             }
