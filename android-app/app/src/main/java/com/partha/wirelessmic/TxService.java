@@ -51,6 +51,13 @@ public class TxService extends Service {
     volatile int activeSource = SRC_PHONE;     // mic actually in use
     volatile String btState = "off";           // off | connecting | connected | no headset | not supported
     private int seq;
+    static final int ENGINE_APP = 0, ENGINE_DUAL = 1, ENGINE_PHONE = 2;
+    volatile int engine = ENGINE_DUAL;         // noise cancellation engine for the phone mic
+    volatile int activeEngine = ENGINE_APP;
+    volatile String engineNote = "";
+    volatile boolean dualOk;                   // two genuinely different mic signals present
+    volatile String primaryMic = "-";
+    volatile float micDiffDb, noiseFloorDb = -90, reductionDb;
 
     // meters / status
     volatile float peakDb = -90, rmsDb = -90;
@@ -86,6 +93,7 @@ public class TxService extends Service {
         instance = this;
         running = true;
         source = getSharedPreferences("wmic", MODE_PRIVATE).getInt("mic_src", SRC_PHONE);
+        engine = getSharedPreferences("wmic", MODE_PRIVATE).getInt("nc_engine", ENGINE_DUAL);
 
         wakeLock = ((PowerManager) getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wmic:tx");
         wakeLock.acquire();
@@ -136,18 +144,48 @@ public class TxService extends Service {
     private AudioRecord openMic(int src) {
         int min = AudioRecord.getMinBufferSize(Dsp.RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
         int preset = MediaRecorder.AudioSource.VOICE_RECOGNITION;   // unprocessed phone mic; our DSP does the rest
+        int channels = AudioFormat.CHANNEL_IN_MONO;
         if (src == SRC_BT) {
             if (!startSco()) return null;
             preset = MediaRecorder.AudioSource.VOICE_COMMUNICATION;   // routed to the Bluetooth headset (SCO)
+        } else if (engine == ENGINE_DUAL) {
+            channels = AudioFormat.CHANNEL_IN_STEREO;                 // bottom + top mic together
+        } else if (engine == ENGINE_PHONE) {
+            preset = MediaRecorder.AudioSource.VOICE_COMMUNICATION;   // phone's call-grade (dual-mic) processing
         }
         try {
-            AudioRecord ar = new AudioRecord(preset, Dsp.RATE, AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT, Math.max(min, Dsp.HOP * 8));
+            AudioRecord ar = new AudioRecord(preset, Dsp.RATE, channels,
+                    AudioFormat.ENCODING_PCM_16BIT, Math.max(min * 2, Dsp.HOP * 16));
+            if (ar.getState() != AudioRecord.STATE_INITIALIZED && channels == AudioFormat.CHANNEL_IN_STEREO) {
+                ar.release();                                         // no stereo capture on this phone
+                engineNote = "dual-mic not supported, using one mic";
+                ar = new AudioRecord(preset, Dsp.RATE, AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT, Math.max(min, Dsp.HOP * 8));
+            }
+            if (src == SRC_PHONE && engine == ENGINE_PHONE) attachPhoneNs(ar.getAudioSessionId());
             ar.startRecording();
             return ar;
         } catch (SecurityException | IllegalStateException e) {
             notifyError("Microphone not available: " + e.getMessage());
             return null;
+        }
+    }
+
+    private android.media.audiofx.NoiseSuppressor phoneNs;
+
+    /** Huawei/Android platform noise suppressor on the capture session (uses both mics on most phones). */
+    private void attachPhoneNs(int session) {
+        try {
+            if (phoneNs != null) phoneNs.release();
+            phoneNs = null;
+            if (android.media.audiofx.NoiseSuppressor.isAvailable()) {
+                phoneNs = android.media.audiofx.NoiseSuppressor.create(session);
+                if (phoneNs != null) phoneNs.setEnabled(true);
+            }
+            engineNote = phoneNs != null && phoneNs.getEnabled() ? "phone noise suppressor on"
+                    : "phone call processing (no separate NS effect)";
+        } catch (Exception e) {
+            engineNote = "phone NS unavailable: " + e.getMessage();
         }
     }
 
@@ -200,30 +238,53 @@ public class TxService extends Service {
                 return;
             }
             activeSource = src;
-            capture(ar, src);
+            activeEngine = engine;
+            capture(ar, src, engine);
             ar.stop();
             ar.release();
+            if (phoneNs != null) { phoneNs.release(); phoneNs = null; }
             if (src == SRC_BT) { stopSco(); btState = "off"; }
         }
     }
 
     /** Reads, processes and streams until stopped or the mic source is switched. */
-    private void capture(AudioRecord ar, int src) {
+    private void capture(AudioRecord ar, int src, int eng) {
         Dsp.NoiseSuppressor nsp = new Dsp.NoiseSuppressor();
         Dsp.Gate gt = new Dsp.Gate();
-        short[] pcm = new short[Dsp.HOP];
-        float[] x = new float[Dsp.HOP], y = new float[Dsp.HOP];
+        int ch = ar.getChannelCount();
+        short[] pcm = new short[Dsp.HOP * ch];
+        float[] x = new float[Dsp.HOP], r = new float[Dsp.HOP], y = new float[Dsp.HOP];
         byte[] packet = new byte[4 + Dsp.HOP * 2];
-        while (running && source == src) {
+        double e0 = 1, e1 = 1, diff = 0, tot = 1;
+        dualOk = false;
+        while (running && source == src && engine == eng) {
             int got = 0;
-            while (got < Dsp.HOP && running) {
-                int n = ar.read(pcm, got, Dsp.HOP - got);
+            while (got < pcm.length && running) {
+                int n = ar.read(pcm, got, pcm.length - got);
                 if (n <= 0) break;
                 got += n;
             }
-            if (got < Dsp.HOP) continue;
-            for (int i = 0; i < Dsp.HOP; i++) x[i] = pcm[i];
-            nsp.process(x, y, ns, hpf);
+            if (got < pcm.length) continue;
+            if (ch == 2) {
+                // primary = mic with more long-term energy (the one nearer the mouth); other = noise reference
+                double s0 = 0, s1 = 0, d = 0;
+                for (int i = 0; i < Dsp.HOP; i++) {
+                    float a = pcm[2 * i], b = pcm[2 * i + 1];
+                    s0 += a * a; s1 += b * b; d += (a - b) * (a - b);
+                }
+                e0 = 0.995 * e0 + 0.005 * s0; e1 = 0.995 * e1 + 0.005 * s1;
+                diff = 0.99 * diff + 0.01 * d; tot = 0.99 * tot + 0.01 * (s0 + s1);
+                dualOk = diff > 0.02 * tot;                          // identical channels = really one mic
+                int p = e0 >= e1 ? 0 : 1;
+                primaryMic = p == 0 ? "bottom" : "top";
+                micDiffDb = (float) (10 * Math.log10((Math.max(e0, e1) + 1) / (Math.min(e0, e1) + 1)));
+                for (int i = 0; i < Dsp.HOP; i++) { x[i] = pcm[2 * i + p]; r[i] = pcm[2 * i + 1 - p]; }
+            } else {
+                for (int i = 0; i < Dsp.HOP; i++) x[i] = pcm[i];
+            }
+            nsp.process(x, ch == 2 && dualOk ? r : null, y, ns, hpf);
+            noiseFloorDb = nsp.noiseDb;
+            reductionDb = nsp.reductionDb;
             if (gate) gt.process(y);
             float g = mute ? 0f : (float) Math.pow(10, gainDb / 20.0);
             float pk = 0; double sum = 0;
@@ -287,7 +348,11 @@ public class TxService extends Service {
              .put("clients", receivers()).put("battery", battery < 0 ? JSONObject.NULL : battery)
              .put("charging", charging).put("wifi_rssi", rssi == 0 ? JSONObject.NULL : rssi)
              .put("uptime", (System.currentTimeMillis() - startedAt) / 1000).put("rate", Dsp.RATE).put("frame", Dsp.HOP)
-             .put("source", activeSource == SRC_BT ? "bt" : "phone").put("bt_state", btState);
+             .put("source", activeSource == SRC_BT ? "bt" : "phone").put("bt_state", btState)
+             .put("engine", activeEngine == ENGINE_DUAL ? "dual" : activeEngine == ENGINE_PHONE ? "phone" : "app")
+             .put("dual_ok", dualOk).put("primary_mic", primaryMic).put("mic_diff_db", Math.round(micDiffDb * 10) / 10.0)
+             .put("noise_db", Math.round(noiseFloorDb)).put("nr_db", Math.round(reductionDb * 10) / 10.0)
+             .put("engine_note", engineNote);
             return j.toString();
         } catch (Exception e) {
             return "{}";
@@ -314,6 +379,7 @@ public class TxService extends Service {
         if (m.has("ns")) { String v = m.optString("ns"); ns = "off".equals(v) ? 0 : "high".equals(v) ? 2 : 1; }
         if (m.has("rec")) setRecording(m.optBoolean("rec"));
         if (m.has("source")) source = "bt".equals(m.optString("source")) ? SRC_BT : SRC_PHONE;
+        if (m.has("engine")) { String e = m.optString("engine"); engine = "dual".equals(e) ? ENGINE_DUAL : "phone".equals(e) ? ENGINE_PHONE : ENGINE_APP; }
     }
 
     void setRecording(boolean on) {

@@ -46,6 +46,8 @@ public class MainActivity extends Activity {
     private final Button[] targetBtns = new Button[3];      // record on: mic phone / this phone / both
     private TextView txFolder, rxFolder, srcInfo;
     private final Button[] srcBtns = new Button[2];         // microphone: phone / Bluetooth headset
+    private final Button[] engBtns = new Button[3];         // NC engine: app DSP / dual-mic / phone
+    private TextView ncInfo;
     private static final int PICK_FOLDER = 42;
     private TextView txStats, txInfo, rxStatus, rxStats, gainLabel, bufLabel, recInfo;
     private SeekBar gainBar, bufBar;
@@ -147,6 +149,22 @@ public class MainActivity extends Activity {
             if (i < 2) nsRow.addView(space(6));
         }
         ctl.addView(nsRow);
+        ctl.addView(text("Noise cancellation engine", 13, DIM), margins(0, 12, 0, 4));
+        LinearLayout engRow = row();
+        String[] en = {"App DSP", "Dual-mic", "Phone"};
+        for (int i = 0; i < 3; i++) {
+            final int e = i;
+            engBtns[i] = button(en[i], v -> {
+                prefs.edit().putInt("nc_engine", e).apply();
+                TxService t = TxService.instance;
+                if (t != null) t.engine = e;
+            });
+            engRow.addView(engBtns[i], weight());
+            if (i < 2) engRow.addView(space(6));
+        }
+        ctl.addView(engRow);
+        ncInfo = text("", 12, DIM);
+        ctl.addView(ncInfo, margins(0, 6, 0, 0));
         LinearLayout tg = row();
         hpfBtn = button("Low-cut 80 Hz", v -> { TxService t = TxService.instance; if (t != null) t.hpf = !t.hpf; });
         gateBtn = button("Noise gate", v -> { TxService t = TxService.instance; if (t != null) t.gate = !t.gate; });
@@ -425,6 +443,12 @@ public class MainActivity extends Activity {
         if (!gainBar.isPressed()) gainBar.setProgress(Math.round(t.gainDb) + 12);
         gainLabel.setText("Mic gain " + Math.round(t.gainDb) + " dB");
         for (int i = 0; i < 3; i++) style(nsBtns[i], t.ns == i ? GREEN : BTN, t.ns == i ? DARK_GREEN : TEXT);
+        for (int i = 0; i < 3; i++) style(engBtns[i], t.engine == i ? BLUE : BTN, t.engine == i ? 0xFF001629 : TEXT);
+        String eng = t.activeSource == TxService.SRC_BT ? "Bluetooth headset (its own NC) + App DSP"
+                : t.activeEngine == TxService.ENGINE_DUAL ? (t.dualOk ? "Dual-mic active · primary: " + t.primaryMic + " mic · mics differ "
+                        + String.format(Locale.US, "%.1f dB", t.micDiffDb) : "Dual-mic: waiting for two different mic signals…")
+                : t.activeEngine == TxService.ENGINE_PHONE ? "Phone engine: " + t.engineNote : "App DSP (single mic)";
+        ncInfo.setText(eng + String.format(Locale.US, "\nNoise floor %d dBFS · removing %.1f dB right now", Math.round(t.noiseFloorDb), -t.reductionDb));
         style(hpfBtn, t.hpf ? GREEN : BTN, t.hpf ? DARK_GREEN : TEXT);
         style(gateBtn, t.gate ? GREEN : BTN, t.gate ? DARK_GREEN : TEXT);
         txInfo.setText("Receivers: open Wireless Mic → RECEIVE on the other phone; this mic appears automatically."
