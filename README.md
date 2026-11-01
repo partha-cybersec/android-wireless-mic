@@ -36,6 +36,19 @@ MIC input with a TRRS-to-TRS cable.
 `app/build/outputs/apk/release/app-release.apk`. The release is signed with the debug key for
 easy side-loading; use your own keystore for a store release.
 
+## Webcam mode (WEBCAM tab)
+
+Turns the phone into a 1080p30 webcam for Zoom / Meet / Teams.
+
+- Camera2 hardware JPEG, 1920x1080 or 1280x720 at ~28-30 fps (measured on Honor 8), back or front camera, flash as a light.
+- MJPEG over HTTP on port 8084: `/video` (stream), `/snap.jpg`, `/` (viewer, `?controls` shows buttons),
+  `/ctl?camera=back|front&res=1080|720&torch=on|off`, `/status`.
+- **USB (lowest delay):** `adb forward tcp:8084 tcp:8084`, then use `http://127.0.0.1:8084/video`
+  (or run `pc/honor-webcam.bat`). About 170 Mbit/s at 1080p, so Wi-Fi gives a lower frame rate; the stream
+  always sends the newest frame, so delay stays low.
+- **PC:** OBS → Sources → + → Media Source → untick *Local file* → input `http://127.0.0.1:8084/video` →
+  *Start Virtual Camera*, then choose **OBS Virtual Camera** in the meeting app. Rotate in OBS if the phone stands portrait.
+
 ## Smart Key app (android-app/smartkey/)
 
 Honor/Huawei phones with a clickable fingerprint sensor (Honor 8 and similar, EMUI 5) send every
