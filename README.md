@@ -36,6 +36,21 @@ MIC input with a TRRS-to-TRS cable.
 `app/build/outputs/apk/release/app-release.apk`. The release is signed with the debug key for
 easy side-loading; use your own keystore for a store release.
 
+## Smart Key app (android-app/smartkey/)
+
+Honor/Huawei phones with a clickable fingerprint sensor (Honor 8 and similar, EMUI 5) send every
+press as a `com.huawei.smartkey` broadcast (`command=Click | DoubleClick | LongPress`), but some
+firmware builds ship without the app that handles it. **Smart Key** (18 KB) restores it:
+
+| Press | Default | Choices |
+|---|---|---|
+| Single | Flashlight on/off | Flashlight, camera, play/pause, Wi-Fi on/off, **Wireless Mic start / mute / record**, or open any app |
+| Double | Open camera | same |
+| Press & hold | Wireless Mic mute/unmute | same |
+
+Wireless Mic control uses a signature-protected permission, so only apps signed with the same key
+can start, mute or record the mic. Build: `./gradlew :smartkey:assembleRelease`.
+
 ---
 
 ## Termux version

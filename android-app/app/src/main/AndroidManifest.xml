@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- lets the Smart Key app (same signing key) start/mute/record the mic -->
+    <permission
+        android:name="com.partha.wirelessmic.permission.CONTROL"
+        android:protectionLevel="signature" />
+
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -38,6 +43,15 @@
             android:name=".TxService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <receiver
+            android:name=".ControlReceiver"
+            android:exported="true"
+            android:permission="com.partha.wirelessmic.permission.CONTROL">
+            <intent-filter>
+                <action android:name="com.partha.wirelessmic.CONTROL" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".RxService"

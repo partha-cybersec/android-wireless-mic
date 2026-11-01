@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Huawei sends fingerprint-sensor presses (the "Smart Key") as this broadcast -->
+    <uses-permission android:name="huawei.permission.USE_SMARTKEY" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="com.partha.wirelessmic.permission.CONTROL" />
+
+    <application
+        android:label="Smart Key"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:allowBackup="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".SmartKeyReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.huawei.smartkey" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
