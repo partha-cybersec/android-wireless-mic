@@ -1,0 +1,6 @@
+# generated on the phone - never commit private keys
+cert.pem
+key.pem
+# recordings
+*.wav
+__pycache__/

@@ -1,0 +1,9 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Home-screen widget: stop the transmitter. SIGTERM makes it close the backup recording cleanly.
+if pkill -TERM -f "wireless-mic/server.py"; then
+  sleep 1
+  termux-toast "Wireless mic stopped" 2>/dev/null
+else
+  termux-toast "Wireless mic was not running" 2>/dev/null
+fi
+termux-wake-unlock 2>/dev/null

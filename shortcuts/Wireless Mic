@@ -1,0 +1,10 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Home-screen widget: start the transmitter in the background (if not running) and open the app screen.
+if ! pgrep -f "wireless-mic/server.py" >/dev/null; then
+  nohup "$PREFIX/bin/wmic" > "$PREFIX/tmp/wmic.log" 2>&1 < /dev/null &
+  for i in $(seq 1 30); do
+    sleep 0.5
+    curl -s -o /dev/null --max-time 1 http://127.0.0.1:8080/info.json && break
+  done
+fi
+termux-open-url "http://127.0.0.1:8080/tx"

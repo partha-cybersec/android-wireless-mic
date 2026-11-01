@@ -1,0 +1,27 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# Honor 8 Wireless Mic - start the transmitter.  Usage: wmic   (Ctrl+C to stop)
+DIR="$HOME/wireless-mic"
+mkdir -p "$HOME/.config/pulse"
+grep -q 'enable-memfd' "$HOME/.config/pulse/client.conf" 2>/dev/null || echo 'enable-memfd = no' >> "$HOME/.config/pulse/client.conf"
+
+# only one transmitter at a time: stop any copy already running (it holds ports 8080/8081)
+if pkill -f "wireless-mic/server.py" 2>/dev/null; then
+  echo "Stopped the previous transmitter."
+  sleep 1
+fi
+
+# self-signed certificate so https:// also works (Chrome often forces https)
+if [ ! -f "$DIR/cert.pem" ] && command -v openssl >/dev/null; then
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=Honor8 Wireless Mic" \
+    -keyout "$DIR/key.pem" -out "$DIR/cert.pem" 2>/dev/null && echo "Created HTTPS certificate."
+fi
+
+termux-wake-lock 2>/dev/null
+if ! pulseaudio --check 2>/dev/null; then
+  pulseaudio --start --exit-idle-time=-1 --disable-shm=yes 2>/dev/null
+  sleep 1
+fi
+pactl list short sources 2>/dev/null | grep -q OpenSL_ES_source || pactl load-module module-sles-source >/dev/null
+
+trap 'termux-wake-unlock 2>/dev/null' EXIT
+exec python "$DIR/server.py"

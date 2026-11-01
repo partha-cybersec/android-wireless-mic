@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#0e1116">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg">
+<title>Wireless Mic</title>
+<style>
+  :root { --bg:#0e1116; --card:#171b22; --line:#262c36; --text:#e8ecf2; --dim:#8b95a5;
+          --accent:#3ea6ff; --ok:#2ecc71; --warn:#f5b041; --bad:#ff4d4f; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--text);
+               font:15px/1.4 Roboto, system-ui, sans-serif; }
+  main { max-width:520px; margin:0 auto; padding:14px 16px 28px; }
+  header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  header h1 { font-size:19px; margin:0; display:flex; align-items:center; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad); display:inline-block; margin-right:8px; }
+  .dot.on { background:var(--ok); }
+  .pill { font-size:12px; color:var(--dim); border:1px solid var(--line); border-radius:999px; padding:3px 10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .air { display:block; width:100%; border:0; border-radius:18px; padding:26px 0 22px; text-align:center;
+         background:var(--ok); color:#00210d; cursor:pointer; }
+  .air b { display:block; font-size:30px; letter-spacing:2px; }
+  .air span { font-size:13px; opacity:.8; }
+  .air.muted { background:#3a1f22; color:#ffb3b5; }
+  .meter { height:14px; background:#0a0d11; border-radius:7px; overflow:hidden; position:relative; margin-top:12px; }
+  .meter i { position:absolute; left:0; top:0; bottom:0; width:0;
+             background:linear-gradient(90deg, var(--ok) 0, var(--ok) 70%, var(--warn) 70%, var(--warn) 88%, var(--bad) 88%); }
+  .meter .pk { position:absolute; top:0; bottom:0; width:2px; background:#fff; left:0; }
+  .row { display:flex; align-items:center; justify-content:space-between; }
+  .grid { display:flex; text-align:center; }
+  .grid div { flex:1; }
+  .grid b { display:block; font-size:18px; }
+  .grid span, label, .hint { color:var(--dim); font-size:12px; }
+  button { background:#232a35; color:var(--text); border:1px solid var(--line); border-radius:10px;
+           padding:11px 12px; font-size:15px; cursor:pointer; }
+  .rec { width:100%; margin-top:10px; padding:14px; font-size:16px; }
+  .rec.on { background:var(--bad); border-color:var(--bad); color:#fff; }
+  .seg { display:flex; }
+  .seg button { flex:1; margin-right:6px; padding:9px 4px; }
+  .seg button:last-child { margin-right:0; }
+  .on { background:var(--ok); border-color:var(--ok); color:#002b12; }
+  input[type=range] { width:100%; }
+  .qr { display:flex; align-items:center; }
+  .qr img { width:118px; height:118px; background:#fff; border-radius:8px; padding:6px; margin-right:12px; }
+  .url { font-size:15px; word-break:break-all; color:var(--accent); }
+  .stop { width:100%; background:transparent; color:var(--bad); border-color:#4a2427; }
+  .two { display:flex; }
+  .two button { flex:1; }
+  .two button:first-child { margin-right:8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><span id="dot" class="dot"></span>Wireless Mic</h1>
+    <span id="rx" class="pill">0 receivers</span>
+  </header>
+
+  <button id="air" class="air"><b id="airt">ON AIR</b><span id="airs">tap to mute</span></button>
+  <div class="meter"><i id="bar"></i><span id="pk" class="pk"></span></div>
+  <div class="row" style="margin-top:6px"><span class="hint" id="lvl">–</span><span class="hint" id="clip"></span></div>
+
+  <button id="rec" class="rec">● RECORD BACKUP</button>
+  <div class="hint" id="recinfo" style="text-align:center;margin-top:6px"></div>
+
+  <div class="card" style="margin-top:12px">
+    <div class="grid">
+      <div><b id="bat">–</b><span>battery</span></div>
+      <div><b id="sig">–</b><span>Wi-Fi</span></div>
+      <div><b id="up">–</b><span>on air</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Mic gain <span id="gainv"></span> dB</label>
+    <input id="gain" type="range" min="-12" max="36" step="1" value="6">
+    <div style="margin-top:12px"><label>Noise cancellation</label>
+      <div class="seg" id="ns"><button data-v="off">Off</button><button data-v="low">Low</button><button data-v="high">High</button></div>
+    </div>
+    <div class="two" style="margin-top:12px">
+      <button id="hpf">Low-cut</button><button id="gate">Gate</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>Receiver: scan with the OPPO camera, or open in Chrome</label>
+    <div class="qr" style="margin-top:8px">
+      <img id="qrimg" alt="QR code">
+      <div><div class="url" id="url">–</div><div class="hint" style="margin-top:6px">Then tap “Start listening”.</div></div>
+    </div>
+  </div>
+
+  <button id="stop" class="stop">■ Stop wireless mic</button>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var ws, st = {};
+  function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+  function fmt(s) { s = Math.floor(s); var h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return (h ? h + ":" + ("0" + m).slice(-2) : m) + ":" + ("0" + (s % 60)).slice(-2); }
+
+  function connect() {
+    ws = new WebSocket("ws://" + (location.hostname || "127.0.0.1") + ":8081");
+    ws.onopen = function () { $("dot").className = "dot on"; };
+    ws.onclose = function () { $("dot").className = "dot"; setTimeout(connect, 1000); };
+    ws.onmessage = function (e) { if (typeof e.data === "string") render(JSON.parse(e.data)); };
+  }
+
+  function render(m) {
+    if (m.t !== "status") return;
+    st = m;
+    var rx = m.clients - 1;
+    $("rx").textContent = rx + (rx === 1 ? " receiver" : " receivers");
+    $("air").className = m.mute ? "air muted" : "air";
+    $("airt").textContent = m.mute ? "MUTED" : "ON AIR";
+    $("airs").textContent = m.mute ? "tap to go live" : "tap to mute";
+    var pk = Math.max(0, Math.min(1, (m.peak + 60) / 60)), rm = Math.max(0, Math.min(1, (m.rms + 60) / 60));
+    $("bar").style.width = (rm * 100).toFixed(1) + "%";
+    $("pk").style.left = (pk * 100).toFixed(1) + "%";
+    $("lvl").textContent = m.mute ? "muted" : Math.round(m.peak) + " dBFS";
+    $("clip").textContent = m.clip ? "CLIP — lower gain" : "";
+    $("rec").className = m.rec ? "rec on" : "rec";
+    $("rec").textContent = m.rec ? "■ STOP RECORDING  " + fmt(m.rec_secs) : "● RECORD BACKUP";
+    $("recinfo").textContent = m.rec ? m.rec_file + "  (L main / R safety −6 dB)" : "Saved to Music/WirelessMic";
+    $("bat").textContent = m.battery == null ? "–" : m.battery + "%" + (m.charging ? "⚡" : "");
+    $("sig").textContent = m.wifi_rssi == null ? "–" : m.wifi_rssi + " dBm";
+    $("up").textContent = fmt(m.uptime);
+    if (document.activeElement !== $("gain")) { $("gain").value = m.gain_db; $("gainv").textContent = m.gain_db; }
+    var b = document.querySelectorAll("#ns button");
+    for (var i = 0; i < b.length; i++) b[i].className = b[i].getAttribute("data-v") === m.ns ? "on" : "";
+    $("hpf").className = m.hpf ? "on" : ""; $("gate").className = m.gate ? "on" : "";
+  }
+
+  $("air").onclick = function () { send({ mute: !st.mute }); };
+  $("rec").onclick = function () { send({ rec: !st.rec }); };
+  $("gain").oninput = function () { $("gainv").textContent = this.value; send({ gain_db: +this.value }); };
+  $("hpf").onclick = function () { send({ hpf: !st.hpf }); };
+  $("gate").onclick = function () { send({ gate: !st.gate }); };
+  var nb = document.querySelectorAll("#ns button");
+  for (var i = 0; i < nb.length; i++) nb[i].onclick = function () { send({ ns: this.getAttribute("data-v") }); };
+  $("stop").onclick = function () {
+    if (!confirm("Stop the wireless mic?" + (st.rec ? " The recording will be saved." : ""))) return;
+    send({ t: "shutdown" });
+    document.body.innerHTML = '<main><h1 style="margin-top:40vh;text-align:center">Wireless mic stopped</h1>' +
+      '<p class="hint" style="text-align:center">Start it again from the home-screen widget.</p></main>';
+  };
+
+  var x = new XMLHttpRequest();
+  x.open("GET", "/info.json");
+  x.onload = function () {
+    var j = JSON.parse(x.responseText);
+    $("url").textContent = j.receiver || "Not on Wi-Fi";
+    if (j.receiver) $("qrimg").src = "/qr.svg?u=" + encodeURIComponent(j.receiver);
+  };
+  x.send();
+  connect();
+})();
+</script>
+</body>
+</html>

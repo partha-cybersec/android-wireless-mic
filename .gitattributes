@@ -1,0 +1,3 @@
+# scripts run on Android: always LF
+* text=auto eol=lf
+*.png binary
