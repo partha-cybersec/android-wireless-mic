@@ -1,0 +1,29 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.partha.wirelessmic'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.partha.wirelessmic'
+        minSdk 24          // Android 7.0 (Honor 8)
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // signed with the debug key so the APK installs directly; use your own keystore for Play Store
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

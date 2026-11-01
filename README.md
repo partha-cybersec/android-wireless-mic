@@ -1,10 +1,40 @@
 # Android Wireless Mic
 
-Turn an old Android phone into a **Hollyland-style wireless microphone**. The phone is the
-transmitter, and any browser on the same Wi-Fi is the receiver (another phone, a PC, OBS). It runs
-in [Termux](https://termux.dev), with no Android SDK, no root and nothing to install on receivers.
+Turn an old Android phone into a **Hollyland-style wireless microphone**. One phone is the
+transmitter; the receiver is a second phone running the same app, or any browser on the same
+Wi-Fi (PC, OBS).
+
+Two ways to run it:
+- **Native Android app** (`android-app/`, recommended): one 45 KB APK with Transmit and Receive
+  modes, automatic pairing over Wi-Fi, and foreground services so it keeps working with the screen off.
+  **[Download the APK from Releases](https://github.com/partha-cybersec/android-wireless-mic/releases/latest)**
+- **Termux version** (`transmitter/`): Python transmitter for phones where you'd rather not install an APK.
 
 Built and tested on a **Honor 8 (FRD-L02, Android 7.0)** with a phone hotspot as the network.
+
+## Native app (android-app/)
+
+| | |
+|---|---|
+| Transmit mode | Mic → spectral noise suppression → gate → gain → backup WAV (main + safety −6 dB) → stream |
+| Receive mode | Finds transmitters automatically (mDNS/NSD), jitter buffer, low-latency AudioTrack playback, remote mute/record |
+| Browser receiver | Still built in: open `http://<mic-phone-ip>:8080` on a PC or in OBS |
+| Share the app | A receiver phone can download the APK straight from the mic phone's receiver page |
+| Size / deps | 45 KB, pure Java, no libraries, minSdk 24 (Android 7.0), targetSdk 34 |
+| Tested | Honor 8: 0 packets lost, about 91 ms latency, 6 % CPU, safety track exactly −6.02 dB |
+
+**Use:** install the APK on both phones, then: mic phone **TRANSMIT → START MIC**; other phone
+**RECEIVE →** tap the mic's name. For a camera, connect the receiver's headphone jack to the camera's
+MIC input with a TRRS-to-TRS cable.
+
+**Build it yourself:** JDK 17+ and the Android SDK (platform 34, build-tools 34), then
+`cd android-app && ./gradlew assembleRelease` (Windows: `gradlew.bat`). Output:
+`app/build/outputs/apk/release/app-release.apk`. The release is signed with the debug key for
+easy side-loading; use your own keystore for a store release.
+
+---
+
+## Termux version
 
 <p>
   <img src="docs/transmitter-app.png" width="280" alt="Transmitter app screen">

@@ -77,6 +77,11 @@
     </div>
   </div>
 
+  <div id="apkcard" class="card hidden">
+    <b>Android phone?</b> Get the native receiver app (lower latency, works with the screen off):
+    <a href="/wirelessmic.apk">download Wireless Mic APK</a>
+  </div>
+
   <div class="card">
     <div class="row"><b>Backup recordings on the mic phone</b><button id="refresh">↻</button></div>
     <div class="hint">Stereo WAV: left = main, right = safety track (−6 dB).</div>
@@ -204,6 +209,10 @@
   $("refresh").onclick = loadFiles;
 
   setInterval(function () { pingId++; pings[pingId] = performance.now(); send({ t: "ping", id: pingId }); }, 1000);
+  // the native app's transmitter serves its own APK; the Termux one does not
+  fetch("/wirelessmic.apk", { method: "HEAD" }).then(function (r) {
+    if (r.ok && /Android/.test(navigator.userAgent)) $("apkcard").classList.remove("hidden");
+  }).catch(function () {});
   connect(); loadFiles();
 })();
 </script>
