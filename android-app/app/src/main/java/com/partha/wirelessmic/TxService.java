@@ -11,6 +11,7 @@ import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
+import android.media.AudioManager;
 import android.media.MediaRecorder;
 import android.net.nsd.NsdManager;
 import android.net.nsd.NsdServiceInfo;
@@ -45,6 +46,11 @@ public class TxService extends Service {
     volatile float gainDb = 6f;
     volatile boolean mute, gate, hpf = true;
     volatile int ns = 1;                       // 0 off, 1 low, 2 high
+    static final int SRC_PHONE = 0, SRC_BT = 1;
+    volatile int source = SRC_PHONE;           // wanted mic: phone or Bluetooth headset
+    volatile int activeSource = SRC_PHONE;     // mic actually in use
+    volatile String btState = "off";           // off | connecting | connected | no headset | not supported
+    private int seq;
 
     // meters / status
     volatile float peakDb = -90, rmsDb = -90;
@@ -79,6 +85,7 @@ public class TxService extends Service {
         else startForeground(1, n);
         instance = this;
         running = true;
+        source = getSharedPreferences("wmic", MODE_PRIVATE).getInt("mic_src", SRC_PHONE);
 
         wakeLock = ((PowerManager) getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wmic:tx");
         wakeLock.acquire();
@@ -114,6 +121,8 @@ public class TxService extends Service {
         running = false;
         instance = null;
         rec.stop();
+        if (captureThread != null) try { captureThread.join(1500); } catch (InterruptedException ignored) { }
+        if (activeSource == SRC_BT) stopSco();
         if (server != null) server.stop();
         if (nsd != null && nsdListener != null) try { nsd.unregisterService(nsdListener); } catch (Exception ignored) { }
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
@@ -123,26 +132,89 @@ public class TxService extends Service {
 
     // ---- audio ------------------------------------------------------------------------------
 
-    private void captureLoop() {
-        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+    /** Opens the mic for the selected source; for Bluetooth, brings up the SCO voice link first. */
+    private AudioRecord openMic(int src) {
         int min = AudioRecord.getMinBufferSize(Dsp.RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);
-        AudioRecord ar;
+        int preset = MediaRecorder.AudioSource.VOICE_RECOGNITION;   // unprocessed phone mic; our DSP does the rest
+        if (src == SRC_BT) {
+            if (!startSco()) return null;
+            preset = MediaRecorder.AudioSource.VOICE_COMMUNICATION;   // routed to the Bluetooth headset (SCO)
+        }
         try {
-            // VOICE_RECOGNITION = unprocessed mic on most phones (no AGC pumping); our DSP does the rest
-            ar = new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, Dsp.RATE, AudioFormat.CHANNEL_IN_MONO,
+            AudioRecord ar = new AudioRecord(preset, Dsp.RATE, AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_16BIT, Math.max(min, Dsp.HOP * 8));
             ar.startRecording();
+            return ar;
         } catch (SecurityException | IllegalStateException e) {
             notifyError("Microphone not available: " + e.getMessage());
-            return;
+            return null;
         }
+    }
+
+    /** Bluetooth hands-free voice link (mSBC 16 kHz or CVSD 8 kHz). Returns false if it does not come up. */
+    private boolean startSco() {
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (!am.isBluetoothScoAvailableOffCall()) { btState = "not supported"; return false; }
+        btState = "connecting";
+        final Object lock = new Object();
+        final boolean[] up = {false};
+        android.content.BroadcastReceiver r = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) {
+                int s = i.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1);
+                if (s == AudioManager.SCO_AUDIO_STATE_CONNECTED) synchronized (lock) { up[0] = true; lock.notifyAll(); }
+            }
+        };
+        registerReceiver(r, new IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED));
+        am.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        am.startBluetoothSco();
+        am.setBluetoothScoOn(true);
+        synchronized (lock) {
+            long end = System.currentTimeMillis() + 6000;
+            while (!up[0] && running && System.currentTimeMillis() < end)
+                try { lock.wait(200); } catch (InterruptedException e) { break; }
+        }
+        unregisterReceiver(r);
+        if (!up[0]) { stopSco(); btState = "no headset"; return false; }
+        btState = "connected";
+        return true;
+    }
+
+    private void stopSco() {
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        am.setBluetoothScoOn(false);
+        am.stopBluetoothSco();
+        am.setMode(AudioManager.MODE_NORMAL);
+    }
+
+    private void captureLoop() {
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+        while (running) {
+            int src = source;
+            AudioRecord ar = openMic(src);
+            if (ar == null) {
+                if (src == SRC_BT) {                      // no headset: fall back to the phone mic
+                    notifyError("Bluetooth headset mic not available (" + btState + ") - using the phone mic");
+                    source = SRC_PHONE;
+                    continue;
+                }
+                return;
+            }
+            activeSource = src;
+            capture(ar, src);
+            ar.stop();
+            ar.release();
+            if (src == SRC_BT) { stopSco(); btState = "off"; }
+        }
+    }
+
+    /** Reads, processes and streams until stopped or the mic source is switched. */
+    private void capture(AudioRecord ar, int src) {
         Dsp.NoiseSuppressor nsp = new Dsp.NoiseSuppressor();
         Dsp.Gate gt = new Dsp.Gate();
         short[] pcm = new short[Dsp.HOP];
         float[] x = new float[Dsp.HOP], y = new float[Dsp.HOP];
         byte[] packet = new byte[4 + Dsp.HOP * 2];
-        int seq = 0;
-        while (running) {
+        while (running && source == src) {
             int got = 0;
             while (got < Dsp.HOP && running) {
                 int n = ar.read(pcm, got, Dsp.HOP - got);
@@ -174,8 +246,6 @@ public class TxService extends Service {
             }
             if (server != null && !server.sessions.isEmpty()) server.broadcastBinary(packet.clone());
         }
-        ar.stop();
-        ar.release();
     }
 
     private static float db(float v) { return (float) (20 * Math.log10(Math.max(v, 1e-9f))); }
@@ -216,7 +286,8 @@ public class TxService extends Service {
              .put("rec_secs", Math.round(rec.seconds() * 10) / 10.0)
              .put("clients", receivers()).put("battery", battery < 0 ? JSONObject.NULL : battery)
              .put("charging", charging).put("wifi_rssi", rssi == 0 ? JSONObject.NULL : rssi)
-             .put("uptime", (System.currentTimeMillis() - startedAt) / 1000).put("rate", Dsp.RATE).put("frame", Dsp.HOP);
+             .put("uptime", (System.currentTimeMillis() - startedAt) / 1000).put("rate", Dsp.RATE).put("frame", Dsp.HOP)
+             .put("source", activeSource == SRC_BT ? "bt" : "phone").put("bt_state", btState);
             return j.toString();
         } catch (Exception e) {
             return "{}";
@@ -242,6 +313,7 @@ public class TxService extends Service {
         if (m.has("hpf")) hpf = m.optBoolean("hpf");
         if (m.has("ns")) { String v = m.optString("ns"); ns = "off".equals(v) ? 0 : "high".equals(v) ? 2 : 1; }
         if (m.has("rec")) setRecording(m.optBoolean("rec"));
+        if (m.has("source")) source = "bt".equals(m.optString("source")) ? SRC_BT : SRC_PHONE;
     }
 
     void setRecording(boolean on) {

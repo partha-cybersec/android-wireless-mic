@@ -44,7 +44,8 @@ public class MainActivity extends Activity {
     private Button tabTx, tabRx, startBtn, airBtn, recBtn, hpfBtn, gateBtn, rxRecBtn, rxMuteBtn, connectBtn;
     private final Button[] nsBtns = new Button[3];
     private final Button[] targetBtns = new Button[3];      // record on: mic phone / this phone / both
-    private TextView txFolder, rxFolder;
+    private TextView txFolder, rxFolder, srcInfo;
+    private final Button[] srcBtns = new Button[2];         // microphone: phone / Bluetooth headset
     private static final int PICK_FOLDER = 42;
     private TextView txStats, txInfo, rxStatus, rxStats, gainLabel, bufLabel, recInfo;
     private SeekBar gainBar, bufBar;
@@ -93,6 +94,25 @@ public class MainActivity extends Activity {
         startBtn.setTextSize(20);
         startBtn.setPadding(0, dp(22), 0, dp(22));
         txPanel.addView(startBtn);
+
+        LinearLayout srcCard = col();
+        srcCard.addView(text("Microphone", 13, DIM));
+        LinearLayout srcRow = row();
+        String[] sn = {"Phone mic", "Bluetooth headset"};
+        for (int i = 0; i < 2; i++) {
+            final int s = i;
+            srcBtns[i] = button(sn[i], v -> {
+                prefs.edit().putInt("mic_src", s).apply();
+                TxService t = TxService.instance;
+                if (t != null) t.source = s;
+            });
+            srcRow.addView(srcBtns[i], weight());
+            if (i == 0) srcRow.addView(space(8));
+        }
+        srcCard.addView(srcRow, margins(0, 4, 0, 0));
+        srcInfo = text("", 12, DIM);
+        srcCard.addView(srcInfo, margins(0, 6, 0, 0));
+        txPanel.addView(card(srcCard), margins(0, 12, 0, 0));
         airBtn = button("ON AIR", v -> { TxService t = TxService.instance; if (t != null) t.mute = !t.mute; });
         airBtn.setTextSize(30);
         airBtn.setTypeface(Typeface.DEFAULT_BOLD);
@@ -227,6 +247,7 @@ public class MainActivity extends Activity {
         }
         RxService.stop(this);
         TxService.start(this);
+        ui.postDelayed(() -> { TxService t = TxService.instance; if (t != null) t.source = prefs.getInt("mic_src", 0); }, 200);
     }
 
     /** Accepts "10.17.18.78", "http://10.17.18.78:8080", "10.17.18.78:8080/" etc. and returns just the host. */
@@ -301,7 +322,10 @@ public class MainActivity extends Activity {
     private void askPermissions() {
         if (Build.VERSION.SDK_INT < 23) return;
         if (Build.VERSION.SDK_INT >= 33)
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS}, 1);
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS,
+                    Manifest.permission.BLUETOOTH_CONNECT}, 1);
+        else if (Build.VERSION.SDK_INT >= 31)
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.BLUETOOTH_CONNECT}, 1);
         else requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
     }
 
@@ -370,6 +394,12 @@ public class MainActivity extends Activity {
         startBtn.setText(on ? "■ STOP MIC" : "▶ START MIC");
         style(startBtn, on ? BTN : GREEN, on ? RED : DARK_GREEN);
         airBtn.setVisibility(on ? View.VISIBLE : View.GONE);
+        int want = on ? t.source : prefs.getInt("mic_src", 0);
+        for (int i = 0; i < 2; i++) style(srcBtns[i], want == i ? BLUE : BTN, want == i ? 0xFF001629 : TEXT);
+        if (!on) srcInfo.setText(want == 1 ? "Pair & connect the headset in Android Bluetooth settings first. Voice quality: 16 kHz (mSBC) or 8 kHz." : "Built-in microphone (or a wired TRRS lav mic), 48 kHz.");
+        else if (t.activeSource == TxService.SRC_BT) srcInfo.setText("● Bluetooth headset mic " + t.btState + " — wear it like a lav mic");
+        else if (want == 1) srcInfo.setText("Bluetooth: " + t.btState + "…");
+        else srcInfo.setText("Using the phone's microphone");
         recBtn.setEnabled(on);
         String ip = TxService.wifiIp();
         if (!on) {
