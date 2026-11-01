@@ -31,5 +31,34 @@
                 <action android:name="com.huawei.smartkey" />
             </intent-filter>
         </receiver>
+
+        <!-- power menu (replacement for a broken power button) -->
+        <service
+            android:name=".PowerService"
+            android:exported="true"
+            android:label="Smart Key power button"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/power_service" />
+        </service>
+
+        <!-- screen off / lock -->
+        <receiver
+            android:name=".LockAdmin"
+            android:exported="true"
+            android:description="@string/lock_admin_desc"
+            android:label="Smart Key screen off"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/lock_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

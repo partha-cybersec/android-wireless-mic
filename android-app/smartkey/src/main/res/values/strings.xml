@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="power_service_desc">Lets Smart Key open the power menu (power off / restart) when you press and hold the fingerprint sensor. It does not read anything on your screen.</string>
+    <string name="lock_admin_desc">Lets Smart Key turn the screen off when you press the fingerprint sensor.</string>
+</resources>

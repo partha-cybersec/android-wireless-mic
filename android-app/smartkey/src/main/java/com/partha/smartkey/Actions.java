@@ -19,11 +19,14 @@ final class Actions {
     static final String CLICK = "click", DOUBLE = "double", LONG = "long";
 
     static final String NONE = "none", TORCH = "torch", CAMERA = "camera", MEDIA = "media", WIFI = "wifi",
-            MIC_MUTE = "mic_mute", MIC_REC = "mic_rec", MIC_START = "mic_start", APP = "app:";
+            MIC_MUTE = "mic_mute", MIC_REC = "mic_rec", MIC_START = "mic_start", APP = "app:",
+            POWER_MENU = "power_menu", SCREEN_OFF = "screen_off";
 
     /** Built-in choices shown in the picker (label, id). "Open app…" is added separately. */
     static final String[][] BUILT_IN = {
             {"Do nothing", NONE},
+            {"Power menu (power off / restart)", POWER_MENU},
+            {"Screen off / lock", SCREEN_OFF},
             {"Flashlight on/off", TORCH},
             {"Open camera", CAMERA},
             {"Play / pause music", MEDIA},
@@ -36,7 +39,7 @@ final class Actions {
     private static boolean torchOn;
 
     static String get(Context c, String press) {
-        String def = CLICK.equals(press) ? TORCH : DOUBLE.equals(press) ? CAMERA : MIC_MUTE;
+        String def = CLICK.equals(press) ? TORCH : DOUBLE.equals(press) ? CAMERA : POWER_MENU;
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("act_" + press, def);
     }
 
@@ -60,6 +63,16 @@ final class Actions {
             buzz(c);
             switch (action) {
                 case NONE: return;
+                case POWER_MENU:
+                    if (!PowerService.powerMenu()) toast(c, "Smart Key: turn on 'Smart Key power button' in Settings → Accessibility");
+                    return;
+                case SCREEN_OFF: {
+                    android.app.admin.DevicePolicyManager dpm =
+                            (android.app.admin.DevicePolicyManager) c.getSystemService(Context.DEVICE_POLICY_SERVICE);
+                    if (dpm.isAdminActive(new android.content.ComponentName(c, LockAdmin.class))) dpm.lockNow();
+                    else toast(c, "Smart Key: open the app and tap 'Allow screen off'");
+                    return;
+                }
                 case TORCH: torch(c); return;
                 case CAMERA:
                     c.startActivity(new Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));

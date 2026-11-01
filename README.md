@@ -46,7 +46,7 @@ firmware builds ship without the app that handles it. **Smart Key** (18 KB) rest
 |---|---|---|
 | Single | Flashlight on/off | Flashlight, camera, play/pause, Wi-Fi on/off, **Wireless Mic start / mute / record**, or open any app |
 | Double | Open camera | same |
-| Press & hold | Wireless Mic mute/unmute | same |
+| Press & hold | **Power menu** (power off / restart) | same, plus **Screen off / lock**: a replacement for a broken power button |
 
 Wireless Mic control uses a signature-protected permission, so only apps signed with the same key
 can start, mute or record the mic. Build: `./gradlew :smartkey:assembleRelease`.

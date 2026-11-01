@@ -31,7 +31,7 @@ public class MainActivity extends Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final Button[] pick = new Button[3];
-    private TextView last;
+    private TextView last, powerStatus;
     private SharedPreferences prefs;
 
     @Override
@@ -59,6 +59,25 @@ public class MainActivity extends Activity {
             c.addView(pick[i], lp(0, 6));
             root.addView(c, lp(0, 12));
         }
+
+        LinearLayout pw = card();
+        pw.addView(text("Power button replacement", 13, DIM));
+        powerStatus = text("", 14, TEXT);
+        pw.addView(powerStatus, lp(0, 4));
+        pw.addView(button("Use press & hold as power button", v -> {
+            Actions.set(this, Actions.LONG, Actions.POWER_MENU);
+            if (PowerService.instance == null) {
+                startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                android.widget.Toast.makeText(this, "Turn on 'Smart Key power button'", android.widget.Toast.LENGTH_LONG).show();
+            }
+        }), lp(0, 8));
+        pw.addView(button("Allow screen off", v -> {
+            Intent i = new Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                    .putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN, new android.content.ComponentName(this, LockAdmin.class))
+                    .putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Lets the fingerprint sensor turn the screen off.");
+            startActivity(i);
+        }), lp(0, 8));
+        root.addView(pw, lp(0, 12));
 
         LinearLayout opt = card();
         Switch vib = new Switch(this);
@@ -90,6 +109,12 @@ public class MainActivity extends Activity {
         @Override public void run() {
             for (int i = 0; i < 3; i++) pick[i].setText(Actions.label(MainActivity.this, Actions.get(MainActivity.this, PRESSES[i][0])));
             last.setText(prefs.getString("last", "Press the sensor to test…"));
+            boolean svc = PowerService.instance != null;
+            boolean admin = ((android.app.admin.DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE))
+                    .isAdminActive(new android.content.ComponentName(MainActivity.this, LockAdmin.class));
+            powerStatus.setText((svc ? "✓ Power menu ready" : "✗ Power menu: not enabled yet")
+                    + "\n" + (admin ? "✓ Screen off ready" : "✗ Screen off: not allowed yet")
+                    + "\nTo wake the phone, touch the fingerprint sensor (it unlocks from screen off).");
             ui.postDelayed(this, 500);
         }
     };
