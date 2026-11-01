@@ -24,6 +24,7 @@ public class RxService extends Service {
 
     volatile String host;
     volatile String state = "idle";                 // idle | connecting | live | reconnecting
+    volatile String lastError;                      // why the last connection attempt failed
     volatile JSONObject txStatus;                   // latest status from the transmitter
     volatile int targetMs = 80;
     volatile long rttMs = -1;
@@ -100,6 +101,7 @@ public class RxService extends Service {
                 for (int i = 0; i < pcm.length; i++) pcm[i] = (short) ((d[4 + 2 * i] & 0xFF) | (d[5 + 2 * i] << 8));
                 push(pcm);
                 state = "live";
+                lastError = null;
             }
             @Override public void onText(String t) {
                 try {
@@ -112,6 +114,7 @@ public class RxService extends Service {
             @Override public void onClosed(String why) {
                 if (!running || client != c) return;
                 state = "reconnecting";
+                lastError = why;
                 new Thread(() -> {
                     try { Thread.sleep(1000); } catch (InterruptedException ignored) { }
                     if (running && client == c) connect();

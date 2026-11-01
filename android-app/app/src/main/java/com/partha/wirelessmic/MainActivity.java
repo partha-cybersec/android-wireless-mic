@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
         ipField.setHintTextColor(DIM);
         ipField.setTextColor(TEXT);
         ipField.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        ipField.setText(prefs.getString("host", ""));
+        ipField.setText(cleanHost(prefs.getString("host", "")));
         manual.addView(ipField, weight());
         connectBtn = button("Connect", v -> connectTo(ipField.getText().toString().trim()));
         manual.addView(connectBtn);
@@ -211,8 +211,20 @@ public class MainActivity extends Activity {
         TxService.start(this);
     }
 
+    /** Accepts "10.17.18.78", "http://10.17.18.78:8080", "10.17.18.78:8080/" etc. and returns just the host. */
+    static String cleanHost(String s) {
+        s = s.trim().replaceFirst("(?i)^[a-z]+://", "");
+        int slash = s.indexOf('/');
+        if (slash >= 0) s = s.substring(0, slash);
+        int colon = s.lastIndexOf(':');
+        if (colon > 0 && s.indexOf(':') == colon) s = s.substring(0, colon);   // strip port (not for IPv6)
+        return s;
+    }
+
     private void connectTo(String host) {
+        host = cleanHost(host);
         if (host.isEmpty()) return;
+        ipField.setText(host);
         prefs.edit().putString("host", host).apply();
         TxService.stop(this);
         RxService.start(this, host);
@@ -339,6 +351,12 @@ public class MainActivity extends Activity {
         boolean live = "live".equals(r.state);
         rxStatus.setText(live ? "● Live from " + r.host : r.state.substring(0, 1).toUpperCase(Locale.US) + r.state.substring(1) + " to " + r.host + "…");
         rxStatus.setTextColor(live ? GREEN : 0xFFF5B041);
+        if (!live && r.lastError != null)
+            rxStatus.append("\n" + (r.lastError.contains("ECONNREFUSED") || r.lastError.contains("refused")
+                    ? "Mic phone found, but the mic is not started. Tap START MIC there."
+                    : r.lastError.contains("timed out") || r.lastError.contains("EHOSTUNREACH") || r.lastError.contains("ENETUNREACH")
+                    ? "Can't reach " + r.host + ". Check both phones are on the same Wi-Fi/hotspot."
+                    : r.lastError));
         if (s != null) rxMeter.set((float) s.optDouble("rms", -90), (float) s.optDouble("peak", -90));
         long lat = r.rttMs < 0 ? -1 : r.rttMs / 2 + r.bufferedMs() + 25;
         rxStats.setText(String.format(Locale.US, "Latency %s   ·   buffer %d ms\nMic battery %s   ·   mic Wi-Fi %s\n%d packets, %d lost%s",
