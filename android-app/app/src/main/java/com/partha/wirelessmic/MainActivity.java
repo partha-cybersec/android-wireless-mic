@@ -40,16 +40,14 @@ public class MainActivity extends Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
-    private LinearLayout txPanel, rxPanel, camPanel, foundList;
-    private Button tabTx, tabRx, tabCam, camBtn, torchBtn, startBtn, airBtn, recBtn, hpfBtn, gateBtn, rxRecBtn, rxMuteBtn, connectBtn;
+    private LinearLayout txPanel, rxPanel, foundList;
+    private Button tabTx, tabRx, startBtn, airBtn, recBtn, hpfBtn, gateBtn, rxRecBtn, rxMuteBtn, connectBtn;
     private final Button[] nsBtns = new Button[3];
     private final Button[] targetBtns = new Button[3];      // record on: mic phone / this phone / both
     private TextView txFolder, rxFolder, srcInfo;
     private final Button[] srcBtns = new Button[2];         // microphone: phone / Bluetooth headset
     private final Button[] engBtns = new Button[3];         // NC engine: app DSP / dual-mic / phone
-    private TextView ncInfo, camInfo;
-    private final Button[] faceBtns = new Button[2];        // webcam: back / front
-    private final Button[] resBtns = new Button[2];         // webcam: 1080p / 720p
+    private TextView ncInfo;
     private static final int PICK_FOLDER = 42;
     private TextView txStats, txInfo, rxStatus, rxStats, gainLabel, bufLabel, recInfo;
     private SeekBar gainBar, bufBar;
@@ -66,7 +64,7 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
         setContentView(buildUi());
-        showTab(prefs.getInt("tab", prefs.getBoolean("rx", false) ? 1 : 0));
+        showTab(prefs.getBoolean("rx", false));
         askPermissions();
     }
 
@@ -85,14 +83,11 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         LinearLayout tabs = row();
-        tabTx = button("MIC", v -> showTab(0));
-        tabRx = button("RECEIVE", v -> showTab(1));
-        tabCam = button("WEBCAM", v -> showTab(2));
+        tabTx = button("TRANSMIT", v -> showTab(false));
+        tabRx = button("RECEIVE", v -> showTab(true));
         tabs.addView(tabTx, weight());
-        tabs.addView(space(6));
+        tabs.addView(space(8));
         tabs.addView(tabRx, weight());
-        tabs.addView(space(6));
-        tabs.addView(tabCam, weight());
         root.addView(tabs, margins(0, 12, 0, 12));
 
         // --- transmitter ---
@@ -245,57 +240,19 @@ public class MainActivity extends Activity {
         rxPanel.addView(text("Camera: headphone jack → TRRS-to-TRS cable → camera MIC input.", 12, DIM), margins(0, 12, 0, 0));
         root.addView(rxPanel);
 
-        // --- webcam ---
-        camPanel = col();
-        camBtn = button("START WEBCAM", v -> toggleCam());
-        camBtn.setTextSize(20);
-        camBtn.setPadding(0, dp(22), 0, dp(22));
-        camPanel.addView(camBtn);
-        LinearLayout camCard = col();
-        camCard.addView(text("Camera", 13, DIM));
-        LinearLayout faceRow = row();
-        String[] fn = {"Back (12 MP)", "Front (8 MP)"};
-        for (int i = 0; i < 2; i++) {
-            final String f = i == 0 ? "back" : "front";
-            faceBtns[i] = button(fn[i], v -> camSet("camera", f));
-            faceRow.addView(faceBtns[i], weight());
-            if (i == 0) faceRow.addView(space(8));
-        }
-        camCard.addView(faceRow, margins(0, 4, 0, 0));
-        camCard.addView(text("Resolution", 13, DIM), margins(0, 12, 0, 4));
-        LinearLayout resRow = row();
-        for (int i = 0; i < 2; i++) {
-            final int h = i == 0 ? 1080 : 720;
-            resBtns[i] = button(h + "p 30 fps", v -> camSet("res", String.valueOf(h)));
-            resRow.addView(resBtns[i], weight());
-            if (i == 0) resRow.addView(space(8));
-        }
-        camCard.addView(resRow);
-        torchBtn = button("Light", v -> { CamService c = CamService.instance; if (c != null) camSet("torch", c.torch ? "off" : "on"); });
-        camCard.addView(torchBtn, margins(0, 12, 0, 0));
-        camPanel.addView(card(camCard), margins(0, 12, 0, 0));
-        camInfo = text("", 14, TEXT);
-        camPanel.addView(card(camInfo), margins(0, 12, 0, 0));
-        camPanel.addView(text("On the PC: open OBS → Sources → + → Media Source (untick Local File, input http://127.0.0.1:"
-                + CamService.PORT + "/video) → Start Virtual Camera. Then pick \"OBS Virtual Camera\" in Zoom / Meet / Teams.\n"
-                + "USB (lowest delay): adb forward tcp:" + CamService.PORT + " tcp:" + CamService.PORT
-                + "\nKeep the screen on or plug in the charger for long calls.", 12, DIM), margins(0, 12, 0, 0));
-        root.addView(camPanel);
-
         ScrollView sv = new ScrollView(this);
         sv.setBackgroundColor(BG);
         sv.addView(root);
         return sv;
     }
 
-    private void showTab(int tab) {
-        prefs.edit().putInt("tab", tab).apply();
-        txPanel.setVisibility(tab == 0 ? View.VISIBLE : View.GONE);
-        rxPanel.setVisibility(tab == 1 ? View.VISIBLE : View.GONE);
-        camPanel.setVisibility(tab == 2 ? View.VISIBLE : View.GONE);
-        Button[] t = {tabTx, tabRx, tabCam};
-        for (int i = 0; i < 3; i++) style(t[i], i == tab ? BLUE : BTN, i == tab ? 0xFF001629 : TEXT);
-        if (tab == 1) startDiscovery(); else stopDiscovery();
+    private void showTab(boolean rx) {
+        prefs.edit().putBoolean("rx", rx).apply();
+        txPanel.setVisibility(rx ? View.GONE : View.VISIBLE);
+        rxPanel.setVisibility(rx ? View.VISIBLE : View.GONE);
+        style(tabTx, !rx ? BLUE : BTN, !rx ? 0xFF001629 : TEXT);
+        style(tabRx, rx ? BLUE : BTN, rx ? 0xFF001629 : TEXT);
+        if (rx) startDiscovery(); else stopDiscovery();
     }
 
     // ---- actions --------------------------------------------------------------------------------
@@ -309,46 +266,6 @@ public class MainActivity extends Activity {
         RxService.stop(this);
         TxService.start(this);
         ui.postDelayed(() -> { TxService t = TxService.instance; if (t != null) t.source = prefs.getInt("mic_src", 0); }, 200);
-    }
-
-    private void toggleCam() {
-        if (CamService.instance != null) { CamService.stop(this); return; }
-        if (Build.VERSION.SDK_INT >= 23 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.CAMERA}, 2);
-            return;
-        }
-        CamService.start(this);
-    }
-
-    /** Webcam setting: applied live when running, otherwise saved for the next start. */
-    private void camSet(String key, String value) {
-        CamService c = CamService.instance;
-        if (c != null) { c.control("/ctl?" + key + "=" + value); return; }
-        if (key.equals("camera")) prefs.edit().putString("cam_facing", value).apply();
-        if (key.equals("res")) prefs.edit().putInt("cam_height", Integer.parseInt(value)).apply();
-    }
-
-    private void renderCam() {
-        CamService c = CamService.instance;
-        boolean on = c != null;
-        String face = on ? c.facing : prefs.getString("cam_facing", "back");
-        int h = on ? c.height : prefs.getInt("cam_height", 1080);
-        camBtn.setText(on ? "STOP WEBCAM" : "START WEBCAM");
-        style(camBtn, on ? RED : GREEN, on ? 0xFFFFFFFF : 0xFF06200F);
-        for (int i = 0; i < 2; i++) {
-            boolean sel = (i == 0) == "back".equals(face);
-            style(faceBtns[i], sel ? BLUE : BTN, sel ? 0xFF001629 : TEXT);
-            sel = (i == 0) == (h == 1080);
-            style(resBtns[i], sel ? BLUE : BTN, sel ? 0xFF001629 : TEXT);
-        }
-        boolean lit = on && c.torch;
-        torchBtn.setText(lit ? "Light: on" : "Light: off");
-        style(torchBtn, lit ? BLUE : BTN, lit ? 0xFF001629 : TEXT);
-        if (!on) { camInfo.setText("Webcam is off."); return; }
-        String ip = TxService.wifiIp();
-        camInfo.setText(String.format(java.util.Locale.US, "%s camera · %dp · %.0f fps · %d viewer%s%s\nWi-Fi: http://%s:%d/video\nUSB:   http://127.0.0.1:%d/video",
-                face, h, c.fps, c.clients, c.clients == 1 ? "" : "s", c.error != null ? "\n⚠ " + c.error : "",
-                ip == null ? "(no Wi-Fi)" : ip, CamService.PORT, CamService.PORT));
     }
 
     /** Accepts "10.17.18.78", "http://10.17.18.78:8080", "10.17.18.78:8080/" etc. and returns just the host. */
@@ -485,7 +402,6 @@ public class MainActivity extends Activity {
             rxFolder.setText(folder);
             renderTx();
             renderRx();
-            renderCam();
             ui.postDelayed(this, 150);
         }
     };
